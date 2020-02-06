@@ -36,6 +36,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 
@@ -55,6 +56,17 @@ type Client struct {
 	// To log to standard out, use:
 	//  client.Log = func(s string) { log.Println(s) }
 	Log func(s string)
+}
+
+// StatusErr represents a none 200 response from a GraphQL server
+// Code is guaranteed to be there but Body may be nil
+type StatusErr struct {
+	Code int
+	Body []byte
+}
+
+func (se *StatusErr) Error() string {
+	return fmt.Sprintf("graphql: server returned a non-200 status code: %v", se.Code)
 }
 
 // NewClient makes a new Client capable of making GraphQL requests.
@@ -132,15 +144,16 @@ func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}
 		return err
 	}
 	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(res.Body)
+		return &StatusErr{Code: res.StatusCode, Body: body}
+	}
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, res.Body); err != nil {
 		return errors.Wrap(err, "reading body")
 	}
 	c.logf("<< %s", buf.String())
 	if err := json.NewDecoder(&buf).Decode(&gr); err != nil {
-		if res.StatusCode != http.StatusOK {
-			return fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
-		}
 		return errors.Wrap(err, "decoding response")
 	}
 	if len(gr.Errors) > 0 {
@@ -203,15 +216,16 @@ func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp inter
 		return err
 	}
 	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(res.Body)
+		return &StatusErr{Code: res.StatusCode, Body: body}
+	}
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, res.Body); err != nil {
 		return errors.Wrap(err, "reading body")
 	}
 	c.logf("<< %s", buf.String())
 	if err := json.NewDecoder(&buf).Decode(&gr); err != nil {
-		if res.StatusCode != http.StatusOK {
-			return fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
-		}
 		return errors.Wrap(err, "decoding response")
 	}
 	if len(gr.Errors) > 0 {
